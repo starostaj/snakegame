@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Snake</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #1a1a1a;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  font-family: monospace;
+  color: #eee;
+}
+#game-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2rem;
+}
+#hud {
+  display: flex;
+  gap: 2rem;
+  font-size: 14px;
+  color: #aaa;
+}
+#hud span { color: #fff; font-weight: 500; }
+#canvas {
+  border: 1px solid #444;
+  border-radius: 8px;
+  display: block;
+  background: #111;
+  touch-action: none;
+  max-width: 100%;
+}
+#msg { font-size: 13px; color: #aaa; text-align: center; }
+#btn {
+  padding: 8px 24px;
+  font-size: 14px;
+  border-radius: 8px;
+  border: 1px solid #444;
+  background: #222;
+  color: #eee;
+  cursor: pointer;
+}
+#btn:hover { background: #333; }
+</style>
+</head>
+<body>
+<div id="game-wrap">
+  <div id="hud">
+    skóre: <span id="score">0</span> &nbsp;&nbsp; nejlepší: <span id="best">0</span> &nbsp;&nbsp; rychlost: <span id="spd">1×</span>
+  </div>
+  <canvas id="canvas" width="400" height="400"></canvas>
+  <div id="msg">přejeď prstem po obrazovce pro ovládání</div>
+  <button id="btn">▶ Start</button>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const bestEl = document.getElementById('best');
+const spdEl = document.getElementById('spd');
+const msgEl = document.getElementById('msg');
+const btn = document.getElementById('btn');
+
+const GRID = 20;
+const COLS = canvas.width / GRID;
+const ROWS = canvas.height / GRID;
+
+// Základní interval (ms) - čím nižší, tím rychlejší
+const BASE_INTERVAL = 180;
+const MIN_INTERVAL = 60;
+
+let snake, dir, nextDir, food, score, best = 0, running = false;
+let lastTime = 0, interval = BASE_INTERVAL, animId;
+let touchStartX = 0, touchStartY = 0;
+
+// Výpočet intervalu podle skóre - každé jablko zrychlí hada o 8ms
+function getInterval(s) {
+  return Math.max(MIN_INTERVAL, BASE_INTERVAL - s * 8);
+}
+
+// Náhodná pozice jídla (ne na hadovi)
+function randFood() {
+  let pos;
+  do {
+    pos = {
+      x: Math.floor(Math.random() * COLS),
+      y: Math.floor(Math.random() * ROWS)
+    };
+  } while (snake.some(s => s.x === pos.x && s.y === pos.y));
+  return pos;
+}
+
+// Inicializace nové hry
+function init() {
+  snake = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }];
+  dir = { x: 1, y: 0 };
+  nextDir = { x: 1, y: 0 };
+  score = 0;
+  scoreEl.textContent = 0;
+  spdEl.textContent = '1×';
+  interval = BASE_INTERVAL;
+  food = randFood();
+  running = true;
+  lastTime = 0;
+  msgEl.textContent = 'přejeď prstem po obrazovce pro ovládání';
+  btn.textContent = '↺ Restart';
+  if (animId) cancelAnimationFrame(animId);
+  animId = requestAnimationFrame(gameLoop);
+}
+
+// Herní smyčka pomocí requestAnimationFrame
+function gameLoop(ts) {
+  if (!running) return;
+  animId = requestAnimationFrame(gameLoop);
+  if (ts - lastTime < interval) return;
+  lastTime = ts;
+  tick();
+}
+
+// Jeden krok hada
+function tick() {
+  dir = nextDir;
+
+  // Průchod zdí - had se vynoří na protější straně
+  let hx = (snake[0].x + dir.x + COLS) % COLS;
+  let hy = (snake[0].y + dir.y + ROWS) % ROWS;
+  const head = { x: hx, y: hy };
+
+  // Konec hry pouze při kolizi se sebou samým
+  if (snake.some(s => s.x === head.x && s.y === head.y)) {
+    running = false;
+    cancelAnimationFrame(animId);
+    if (score > best) { best = score; bestEl.textContent = best; }
+    msgEl.textContent = '💀 Konec hry! Skóre: ' + score;
+    btn.textContent = '▶ Hrát znovu';
+    draw();
+    return;
+  }
+
+  snake.unshift(head);
+
+  // Snězení jídla
+  if (head.x === food.x && head.y === food.y) {
+    score++;
+    scoreEl.textContent = score;
+    interval = getInterval(score);
+    const mult = (BASE_INTERVAL / interval).toFixed(1);
+    spdEl.textContent = mult + '×';
+    food = randFood();
+  } else {
+    snake.pop(); // Had se pohybuje - odstraní ocas
+  }
+
+  draw();
+}
+
+// Vykreslení herní plochy
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const snakeHead = '#5DCAA5';
+  const snakeBody = '#9FE1CB';
+  const foodColor = '#F0997B';
+  const gridColor = 'rgba(255,255,255,0.03)';
+
+  // Mřížka
+  for (let x = 0; x < COLS; x++)
+    for (let y = 0; y < ROWS; y++) {
+      ctx.fillStyle = gridColor;
+      ctx.fillRect(x * GRID + 0.5, y * GRID + 0.5, GRID - 1, GRID - 1);
+    }
+
+  // Had
+  snake.forEach((seg, i) => {
+    ctx.fillStyle = i === 0 ? snakeHead : snakeBody;
+    const r = i === 0 ? 6 : 4;
+    const x = seg.x * GRID + 1, y = seg.y * GRID + 1, s = GRID - 2;
+    ctx.beginPath();
+    ctx.roundRect(x, y, s, s, r);
+    ctx.fill();
+
+    // Oči hlavy
+    if (i === 0) {
+      ctx.fillStyle = '#04342C';
+      const ex  = dir.x ===  1 ? x + s - 6 : dir.x === -1 ? x + 4 : x + s/2 - 5;
+      const ey  = dir.y ===  1 ? y + s - 6 : dir.y === -1 ? y + 4 : y + s/2 - 3;
+      const ex2 = dir.x ===  1 ? x + s - 6 : dir.x === -1 ? x + 4 : x + s/2 + 3;
+      const ey2 = dir.y ===  1 ? y + s - 6 : dir.y === -1 ? y + 4 : y + s/2 + 3;
+      ctx.beginPath(); ctx.arc(ex,  ey,  3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex2, ey2, 3, 0, Math.PI * 2); ctx.fill();
+    }
+  });
+
+  // Jídlo
+  ctx.fillStyle = foodColor;
+  const fx = food.x * GRID + 2, fy = food.y * GRID + 2, fs = GRID - 4;
+  ctx.beginPath();
+  ctx.arc(fx + fs/2, fy + fs/2, fs/2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// Ovládání klávesnicí
+document.addEventListener('keydown', e => {
+  if (!running && ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d'].includes(e.key)) {
+    init(); return;
+  }
+  const map = {
+    ArrowUp:    { x: 0,  y: -1 }, w: { x: 0,  y: -1 },
+    ArrowDown:  { x: 0,  y:  1 }, s: { x: 0,  y:  1 },
+    ArrowLeft:  { x: -1, y:  0 }, a: { x: -1, y:  0 },
+    ArrowRight: { x: 1,  y:  0 }, d: { x: 1,  y:  0 }
+  };
+  const nd = map[e.key];
+  // Nelze se otočit o 180°
+  if (nd && !(nd.x === -dir.x && nd.y === -dir.y)) {
+    nextDir = nd;
+    e.preventDefault();
+  }
+});
+
+// Swipe gesta pro mobil a tablet
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+  if (!running) init();
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  const dy = e.changedTouches[0].clientY - touchStartY;
+
+  // Minimální délka swipe (10px) aby se nezaregistrovalo náhodné klepnutí
+  if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+
+  let nd;
+  if (Math.abs(dx) > Math.abs(dy)) {
+    nd = dx > 0 ? { x: 1, y: 0 } : { x: -1, y: 0 }; // Horizontální swipe
+  } else {
+    nd = dy > 0 ? { x: 0, y: 1 } : { x: 0, y: -1 }; // Vertikální swipe
+  }
+
+  // Nelze se otočit o 180°
+  if (!(nd.x === -dir.x && nd.y === -dir.y)) {
+    nextDir = nd;
+  }
+}, { passive: false });
+
+btn.addEventListener('click', init);
+draw();
+</script>
+</body>
+</html>
